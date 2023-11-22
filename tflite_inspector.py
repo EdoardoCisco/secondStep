@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
 import argparse
+import pandas as pd
 
 def load_and_inspect_tflite_model(tflite_file_path):
     # Load the TFLite model
@@ -9,35 +10,31 @@ def load_and_inspect_tflite_model(tflite_file_path):
     return interpreter
 
 def print_in_out_details(interpreter):
-    # Get information about the model
+    # Get information about the input and output
     input_details = interpreter.get_input_details()
     output_details = interpreter.get_output_details()
-    print("Input Tensor Details:")
-    print(input_details)
-
-    print("\nOutput Tensor Details:")
-    print(output_details)
+    print("Input Tensor Details:", input_details)
+    print("\nOutput Tensor Details:", output_details)
 
 def get_layers(interpreter):
-    # Get formatted layers and weights
+    # Get formatted layers
     for i, layer in enumerate(interpreter.get_tensor_details()):
         print(f"\nLayer {i + 1}: {layer['name']}")
         print("Type:", layer['dtype'])
         print("Shape:", layer['shape'])
     
 def get_weights(interpreter):
-    for layer in enumerate(interpreter.get_tensor_details()):
-        # Print the weights if available
-        if 'quantization' in layer and 'scales' in layer['quantization']:
-            scales = layer['quantization']['scales']
-            zero_points = layer['quantization']['zero_points']
-            quantized_values = interpreter.get_tensor(layer['index'])
-
-            # Dequantize the weights
-            dequantized_values = (quantized_values - zero_points) * scales
-
-            print("\nWeights:")
-            print(dequantized_values)
+    for i, layer in enumerate(interpreter.get_tensor_details()):
+        if 'quantization' in layer:
+            quantization, scale, zero_point = layer['quantization'], layer['quantization_parameters']['scales'], layer['quantization_parameters']['zero_points']
+            # weights = interpreter.tensor(layer['index'])
+            # real_weights = (weights - zero_point) * scale
+            # print(f"Weights (Quantized):\n{weights}\n")
+            # print(f"Weights (Real Values):\n{real_weights}\n")
+            print(f"Layer {i}:")
+            print(f"Quantization:\t{quantization}")
+            print(f"Scale:\t{scale}")
+            print(f"Zero point:\t{zero_point}\n")
 
 def main():
     parser = argparse.ArgumentParser(description='Load a TensorFlow Lite model and return layers with associated weights.')
@@ -50,14 +47,10 @@ def main():
     interpreter = load_and_inspect_tflite_model(file_path)
 
     # Print model information
-    # print_in_out_details(interpreter)
-
-    # print(interpreter.model_content())
-    print("----------------")
-    print(interpreter.get_tensor_details())
-    print("----------------")
+    print_in_out_details(interpreter)
+    get_layers(interpreter)
+    print("\n=================================================\n")
     get_weights(interpreter)
-    print("----------------")
 
 if __name__ == "__main__":
     main()
