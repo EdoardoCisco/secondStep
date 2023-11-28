@@ -2,6 +2,7 @@ import numpy as np
 import tensorflow as tf
 import argparse
 import pandas as pd
+import json
 
 def load_and_inspect_tflite_model(tflite_file_path):
     # Load the TFLite model
@@ -18,56 +19,87 @@ def print_in_out_details(interpreter):
 
 def get_layers(interpreter):
     # Get formatted layers
+    structures = []
     for i, layer in enumerate(interpreter.get_tensor_details()):
-        print(f"\nLayer {i + 1}: {layer['name']}")
-        print("Type:", layer['dtype'])
-        print("Shape:", layer['shape'])
-    
-def get_quantizaion_values(interpreter):
-    for i, layer in enumerate(interpreter.get_tensor_details()):
-        if 'quantization' in layer:
-            quantization, scale, zero_point = layer['quantization'], layer['quantization_parameters']['scales'], layer['quantization_parameters']['zero_points']
-            print(f"Layer {i}:")
-            print(f"Quantization:\t{quantization}")
-            print(f"Scale:\t{scale}")
-            print(f"Zero point:\t{zero_point}\n")
+        structure = {
+            "index" : [layer['index']],
+            "Layer name" : [layer['name']],
+           "Shape:" : [layer['shape'].tolist()]
+        }
+        structures.append(structure)
+    saveJason(structures, "layersShapes.json")
 
 def get_weights(interpreter):
-    for i, layer in enumerate(interpreter.get_tensor_details()):
-        if 'Conv2D' in layer['name']:
-            print("\nLayer ", layer['index'],interpreter.get_tensor(layer['index']))
+    structures = []
+    ops_details = interpreter._get_ops_details()
+    vector = np.vectorize(np.int_)
+    for operation in ops_details:
+        if operation['op_name'] == "CONV_2D" or operation['op_name'] == "DEPTHWISE_CONV_2D" or operation['op_name'] == "FULLY_CONNECTED":
+            input_indices = operation['inputs']
+            weights = interpreter.get_tensor(input_indices[1])
+            bias = interpreter.get_tensor(input_indices[2])
+            structure = {
+                "name": [operation['op_name']],
+                    "weights" : [vector(weights).tolist()],
+                    "bias": [vector(bias).tolist()]
+                }
+            structures.append(structure)
+    saveJason(structures, "weights.json")
 
-
-def get_detail(interpreter):
-    for layer in enumerate(interpreter.get_tensor_details()):
-        print(layer, "\n=============================\n")
-
-def get_structure(interpreter):
+def get_quantizaion_values(interpreter):
+    structures = []
     ops_details = interpreter._get_ops_details()
     tensors_details = interpreter.get_tensor_details()
-    for layer in ops_details:
-        print(layer['index'], layer['op_name'])
-        input_indices = layer['inputs']
-        output_indices = layer['outputs']
-        for input_index in input_indices:
-            input_details = next((details for details in tensors_details if details['index'] == input_index), None)
-            if input_details:
-                print(f"Input Index {input_index}: {input_details['name']}")
-        for output_index in output_indices:
-            output_details = next((details for details in tensors_details if details['index'] == output_index), None)
-            if output_details:
-                print(f"Output Index {output_index}: {output_details['name']}")
-        print("="*30)
+    for operation in ops_details:
+        if operation['op_name'] == "CONV_2D" or operation['op_name'] == "DEPTHWISE_CONV_2D" or operation['op_name'] == "FULLY_CONNECTED":
+            input_indices = operation['inputs']
+            filters = next((details for details in tensors_details if details['index'] == input_indices[1]),None)
+            bias = next((details for details in tensors_details if details['index'] == input_indices[2]),None)
+            structure = {
+                "name": [operation['op_name']],
+                "filters": {
+                    "index" : [filters['index']],
+                    "qantization": [filters['quantization']],
+                    "scale": [filters['quantization_parameters']['scales'].tolist()],
+                    "zero point": [filters['quantization_parameters']['zero_points'].tolist()]
+                },
+                "bias": {
+                    "index" : [bias['index']],
+                    "qantization": [bias['quantization']],
+                    "scale": [bias['quantization_parameters']['scales'].tolist()],
+                    "zero point": [bias['quantization_parameters']['zero_points'].tolist()]
+                }
+            }
+            structures.append(structure)           
+    saveJason(structures, "quantizationValues.json")
 
+def get_structure(interpreter):
+    structures = []
+    ops_details = interpreter._get_ops_details()
+    tensors_details = interpreter.get_tensor_details()
+    for layer in ops_details: 
+        if not 'DELEGATE' in layer['op_name']:
+            input_indices = layer['inputs']
+            output_indices = layer['outputs']
+            input_details = next((details for details in tensors_details if details['index'] == input_indices[0]),None)
+            output_details = next((details for details in tensors_details if details['index'] == output_indices[0]),None)
+            print(input_details)
+            print(output_details)
+            structure = {
+                "index": [layer['index']],
+                "op_name": [layer['op_name']],
+                "input index": [input_details['index']],
+                "input name": [input_details['name']],
+                "output index": [output_details['index']],
+                "output name": [output_details['name']]
+            }
+            structures.append(structure)
+    saveJason(structures, "modelStructure.json")
 
-        # input_tensors = [tensors_details['index'] for input_number in input_indices]
-        # print("Input tensor: ", input_tensors)
-        # output_indices = layer['outputs']
-        # output_tensors = [interpreter.tensor(output_number) for output_number in output_indices]
-        # print("Output tensor:", output_tensors)
+def saveJason(structure, filename):
+    with open(filename, 'w') as json_file:
+        json.dump(structure, json_file, indent=2)
 
-
-            
 
 def main():
     parser = argparse.ArgumentParser(description='Load a TensorFlow Lite model and return layers with associated weights.')
@@ -79,31 +111,10 @@ def main():
     # Load the model
     interpreter = load_and_inspect_tflite_model(file_path)
 
-    # Print model information
-    # print_in_out_details(interpreter)
+    # get_structure(interpreter)
     # get_layers(interpreter)
-    # print("\n=================================================\n")
-    #get_quantizaion_values(interpreter)
-    # print("\n=================================================\n")
-    # conv_layer = interpreter.get_tensor(8)
-    # print(conv_layer)
-    # get_weights(interpreter)
-    # print("\n=================================================\n")
-    # test(interpreter)
-    # print(interpreter._get_ops_details())
-    # model = tf.lite.experimental.Analyzer.analyze(model_content=interpreter)
-    # print(model)
-    # Get the filters
-    # filters, biases = conv_layer.get_weights()
-    # print(interpreter.get_tensor_details())
-    # get_structure(interpreter)
-    # print("\n=================================================\n")
-    # print(biases)
-    get_detail(interpreter)
-    # get_structure(interpreter)
-    # interpreter.tensor
-
-    # print(interpreter.get_tensor_details())
+    # get_quantizaion_values(interpreter)
+    get_weights(interpreter)
 
 if __name__ == "__main__":
     main()
